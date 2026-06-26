@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block content %}
+<h2><i class="fas fa-shopping-cart text-success"></i> 采购中心</h2>
+
+<div class="row mt-4">
+    <div class="col-md-8">
+        <h4>成熟可售果蔬</h4>
+        <div class="row">
+            {% for f in fruits %}
+            <div class="col-md-4 mb-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">{{ f.variety }}</h5>
+                        <p class="card-text">
+                            地块：{{ f.land_location or '—' }}<br>
+                            预估产量：{{ f.estimated_yield }} kg<br>
+                            已采购：{{ f.purchased_yield or 0 }} kg<br>
+                            <span class="text-success">剩余：{{ (f.estimated_yield - (f.purchased_yield or 0))|round(1) }} kg</span>
+                        </p>
+                        <form method="POST" action="{{ url_for('purchase') }}" onsubmit="return confirm('确认采购？')">
+                            <input type="hidden" name="fruit_id" value="{{ f.fruit_id }}">
+                            <div class="input-group mb-2">
+                                <input type="number" step="0.1" class="form-control" name="amount" placeholder="数量(kg)" required min="0.1" max="{{ f.estimated_yield - (f.purchased_yield or 0) }}">
+                            </div>
+                            <div class="input-group mb-2">
+                                <input type="number" step="0.5" class="form-control" name="price" placeholder="单价(¥)" required min="0.1">
+                            </div>
+                            <button type="submit" class="btn btn-success w-100">立即采购</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            {% else %}
+            <div class="col-12"><p class="text-muted">暂无成熟可售果蔬</p></div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <h4>我的订单</h4>
+        <ul class="list-group">
+            {% for o in orders %}
+            <li class="list-group-item">
+                <strong>{{ o.fruit_variety or '—' }}</strong><br>
+                数量：{{ o.amount }} kg &nbsp; 单价：¥{{ o.price }}<br>
+                总价：<strong>¥{{ (o.amount * o.price)|round(2) }}</strong><br>
+                <small class="text-muted">{{ o.order_time or '—' }}</small>
+            </li>
+            {% else %}
+            <li class="list-group-item text-muted">暂无订单</li>
+            {% endfor %}
+        </ul>
+    </div>
+</div>
+{% endblock %}
