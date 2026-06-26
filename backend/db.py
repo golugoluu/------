@@ -6,6 +6,6 @@ def get_db_connection():
         host='localhost',
         database='fruit_sale_system',      
         user='postgres',
-        password='081010'
+        password='******'
     )
     return conn
