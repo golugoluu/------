@@ -113,3 +113,6 @@ FOR EACH ROW EXECUTE PROCEDURE check_purchase_limit();
 INSERT INTO orders (amount, user_id, fruit_id) VALUES (500, 4, 1);
 -- 下面这条会触发异常（700+600=1300 > 1000 预估产量）
 -- INSERT INTO orders (amount, user_id, fruit_id) VALUES (600, 4, 1);
+
+--重建数据库
+--DROP TABLE IF EXISTS orders, records, fruits, lands, users CASCADE;

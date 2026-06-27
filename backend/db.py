@@ -5,8 +5,8 @@ def get_db_connection():
     conn = psycopg2.connect(
         host='localhost',
         database='fruit_sale_system',
-        user='postgres',
-        password='081010',
+        user='pass',
+        password='pass',
         client_encoding='UTF8'
     )
     return conn
