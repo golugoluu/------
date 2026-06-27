@@ -19,7 +19,17 @@
                         {% elif session.role == '采购商' %}
                             <li class="nav-item"><a class="nav-link" href="{{ url_for('buyer') }}">采购首页</a></li>
                         {% elif session.role == '管理员' %}
-                            <li class="nav-item"><a class="nav-link" href="{{ url_for('admin_users') }}">用户管理</a></li>
+                            <li class="nav-item dropdown">
+                                <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">数据管理</a>
+                                <ul class="dropdown-menu">
+                                    <li><a class="dropdown-item" href="{{ url_for('admin_users') }}">用户管理</a></li>
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li><a class="dropdown-item" href="{{ url_for('admin_lands') }}">地块总览</a></li>
+                                    <li><a class="dropdown-item" href="{{ url_for('admin_fruits') }}">果蔬总览</a></li>
+                                    <li><a class="dropdown-item" href="{{ url_for('admin_records') }}">农事记录</a></li>
+                                    <li><a class="dropdown-item" href="{{ url_for('admin_orders') }}">订单管理</a></li>
+                                </ul>
+                            </li>
                         {% endif %}
                     {% endif %}
                 </ul>

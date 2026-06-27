@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+<h2><i class="fas fa-shopping-cart text-success"></i> 订单管理（全部）</h2>
+
+<table class="table table-bordered table-hover mt-3">
+    <thead class="table-light">
+        <tr>
+            <th>订单ID</th>
+            <th>采购商</th>
+            <th>果蔬品种</th>
+            <th>数量(kg)</th>
+            <th>单价(¥)</th>
+            <th>总价(¥)</th>
+            <th>下单时间</th>
+            <th>操作</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for o in orders %}
+        <tr>
+            <td>{{ o.order_id }}</td>
+            <td>{{ o.buyer_name or '—' }}</td>
+            <td>{{ o.fruit_variety or '—' }}</td>
+            <td>{{ o.amount }}</td>
+            <td>¥{{ o.unit_price or 0 }}</td>
+            <td><strong>¥{{ (o.amount * (o.unit_price or 0))|round(2) }}</strong></td>
+            <td>{{ o.order_time or '—' }}</td>
+            <td>
+                <form method="POST" action="{{ url_for('delete_order', order_id=o.order_id) }}" style="display:inline;">
+                    <button class="btn btn-sm btn-danger" onclick="return confirm('确定删除该订单？已采购量将自动扣减。')">删除</button>
+                </form>
+            </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-muted">暂无订单</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

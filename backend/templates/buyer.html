@@ -15,15 +15,13 @@
                             地块：{{ f.land_location or '—' }}<br>
                             预估产量：{{ f.estimated_yield }} kg<br>
                             已采购：{{ f.purchased_yield or 0 }} kg<br>
-                            <span class="text-success">剩余：{{ (f.estimated_yield - (f.purchased_yield or 0))|round(1) }} kg</span>
+                            <span class="text-success">剩余：{{ (f.estimated_yield - (f.purchased_yield or 0))|round(1) }} kg</span><br>
+                            <span class="text-danger fw-bold">单价：¥{{ f.price or 0 }}</span>
                         </p>
                         <form method="POST" action="{{ url_for('purchase') }}" onsubmit="return confirm('确认采购？')">
                             <input type="hidden" name="fruit_id" value="{{ f.fruit_id }}">
                             <div class="input-group mb-2">
                                 <input type="number" step="0.1" class="form-control" name="amount" placeholder="数量(kg)" required min="0.1" max="{{ f.estimated_yield - (f.purchased_yield or 0) }}">
-                            </div>
-                            <div class="input-group mb-2">
-                                <input type="number" step="0.5" class="form-control" name="price" placeholder="单价(¥)" required min="0.1">
                             </div>
                             <button type="submit" class="btn btn-success w-100">立即采购</button>
                         </form>
@@ -42,8 +40,8 @@
             {% for o in orders %}
             <li class="list-group-item">
                 <strong>{{ o.fruit_variety or '—' }}</strong><br>
-                数量：{{ o.amount }} kg &nbsp; 单价：¥{{ o.price }}<br>
-                总价：<strong>¥{{ (o.amount * o.price)|round(2) }}</strong><br>
+                数量：{{ o.amount }} kg &nbsp; 单价：¥{{ o.unit_price or 0 }}<br>
+                总价：<strong>¥{{ (o.amount * (o.unit_price or 0))|round(2) }}</strong><br>
                 <small class="text-muted">{{ o.order_time or '—' }}</small>
             </li>
             {% else %}

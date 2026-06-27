@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2><i class="fas fa-map-pin text-success"></i> 地块管理（全部）</h2>
+    <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addLandModal">+ 添加地块</button>
+</div>
+
+<table class="table table-bordered table-hover">
+    <thead class="table-light">
+        <tr>
+            <th>编号</th>
+            <th>位置</th>
+            <th>面积(亩)</th>
+            <th>所属种植户</th>
+            <th>操作</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for land in lands %}
+        <tr>
+            <td>{{ land.land_id }}</td>
+            <td>{{ land.location }}</td>
+            <td>{{ land.area }}</td>
+            <td>{{ land.owner_name or '—' }}</td>
+            <td>
+                <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editLandModal{{ land.land_id }}">编辑</button>
+                <form method="POST" action="{{ url_for('delete_land', land_id=land.land_id) }}" style="display:inline;">
+                    <input type="hidden" name="next" value="admin_lands">
+                    <button class="btn btn-sm btn-danger" onclick="return confirm('确定删除？将同时删除该地块下的所有果蔬、农事记录和订单。')">删除</button>
+                </form>
+            </td>
+        </tr>
+        <!-- 编辑模态框 -->
+        <div class="modal fade" id="editLandModal{{ land.land_id }}" tabindex="-1">
+            <div class="modal-dialog"><div class="modal-content">
+                <div class="modal-header"><h5>编辑地块 #{{ land.land_id }}</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body">
+                    <form method="POST" action="{{ url_for('edit_land', land_id=land.land_id) }}">
+                        <input type="hidden" name="next" value="admin_lands">
+                        <div class="mb-2">
+                            <label class="form-label small text-muted mb-0">位置名称</label>
+                            <input type="text" class="form-control" name="location" value="{{ land.location }}" required>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small text-muted mb-0">面积(亩)</label>
+                            <input type="number" step="0.1" class="form-control" name="area" value="{{ land.area }}" required>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small text-muted mb-0">所属种植户</label>
+                            <select class="form-select" name="user_id">
+                                {% for g in growers %}
+                                    <option value="{{ g.user_id }}" {% if g.user_id == land.user_id %}selected{% endif %}>{{ g.username }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-success">保存</button>
+                    </form>
+                </div>
+            </div></div>
+        </div>
+        {% endfor %}
+    </tbody>
+</table>
+
+<!-- 添加地块模态框 -->
+<div class="modal fade" id="addLandModal" tabindex="-1">
+    <div class="modal-dialog"><div class="modal-content">
+        <div class="modal-header"><h5>添加地块</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+            <form method="POST" action="{{ url_for('add_land') }}">
+                <input type="hidden" name="next" value="admin_lands">
+                <div class="mb-2">
+                    <label class="form-label small text-muted mb-0">位置名称</label>
+                    <input type="text" class="form-control" name="location" placeholder="位置名称" required>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small text-muted mb-0">面积(亩)</label>
+                    <input type="number" step="0.1" class="form-control" name="area" placeholder="面积(亩)" required>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small text-muted mb-0">所属种植户</label>
+                    <select class="form-select" name="user_id" required>
+                        <option value="">选择种植户</option>
+                        {% for g in growers %}
+                            <option value="{{ g.user_id }}">{{ g.username }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-success">添加</button>
+            </form>
+        </div>
+    </div></div>
+</div>
+{% endblock %}

@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2><i class="fas fa-clipboard-list text-success"></i> 农事记录（全部）</h2>
+    <div>
+        <form method="GET" class="d-inline">
+            <select name="fruit_id" class="form-select d-inline-block w-auto" onchange="this.form.submit()">
+                <option value="">全部果蔬</option>
+                {% for f in fruits %}
+                    <option value="{{ f.fruit_id }}" {% if selected_fruit|string == f.fruit_id|string %}selected{% endif %}>{{ f.variety }}</option>
+                {% endfor %}
+            </select>
+        </form>
+        <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addRecordModal">+ 添加记录</button>
+    </div>
+</div>
+
+<table class="table table-bordered table-hover">
+    <thead class="table-light">
+        <tr><th>类型</th><th>时间</th><th>详情</th><th>果蔬</th><th>所属种植户</th><th>操作</th></tr>
+    </thead>
+    <tbody>
+        {% for r in records %}
+        <tr>
+            <td><span class="badge {% if r.operation_type == '施肥' %}bg-warning{% else %}bg-info{% endif %}">{{ r.operation_type }}</span></td>
+            <td>{{ r.operation_time or '—' }}</td>
+            <td>{{ r.details or '—' }}</td>
+            <td>{{ r.fruit_variety or '—' }}</td>
+            <td>{{ r.owner_name or '—' }}</td>
+            <td>
+                <form method="POST" action="{{ url_for('delete_record', record_id=r.record_id) }}" style="display:inline;">
+                    <input type="hidden" name="next" value="admin_records">
+                    <button class="btn btn-sm btn-danger" onclick="return confirm('确定删除？')">删除</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<!-- 添加记录模态框 -->
+<div class="modal fade" id="addRecordModal" tabindex="-1">
+    <div class="modal-dialog"><div class="modal-content">
+        <div class="modal-header"><h5>添加农事记录</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+            <form method="POST" action="{{ url_for('add_record') }}">
+                <input type="hidden" name="next" value="admin_records">
+                <div class="mb-2">
+                    <select class="form-select" name="fruit_id" required>
+                        <option value="">选择果蔬</option>
+                        {% for f in fruits %}
+                            <option value="{{ f.fruit_id }}">{{ f.variety }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="mb-2">
+                    <select class="form-select" name="operation_type">
+                        <option value="施肥">施肥</option>
+                        <option value="浇水">浇水</option>
+                    </select>
+                </div>
+                <div class="mb-2"><input type="datetime-local" class="form-control" name="operation_time" required></div>
+                <div class="mb-2"><textarea class="form-control" name="details" rows="2" placeholder="详情"></textarea></div>
+                <button type="submit" class="btn btn-success">保存</button>
+            </form>
+        </div>
+    </div></div>
+</div>
+{% endblock %}

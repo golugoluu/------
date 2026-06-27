@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
-    <h2><i class="fas fa-apple-alt text-success"></i> 果蔬批次</h2>
+    <h2><i class="fas fa-apple-alt text-success"></i> 果蔬批次（全部）</h2>
     <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addFruitModal">+ 种植新批次</button>
 </div>
 
@@ -10,6 +10,7 @@
         <tr>
             <th>品种</th>
             <th>地块</th>
+            <th>所属种植户</th>
             <th>种植时间</th>
             <th>状态</th>
             <th>预估产量(kg)</th>
@@ -24,6 +25,7 @@
         <tr>
             <td>{{ f.variety }}</td>
             <td>{{ f.land_location or '—' }}</td>
+            <td>{{ f.owner_name or '—' }}</td>
             <td>{{ f.plant_time or '—' }}</td>
             <td><span class="badge {% if f.maturity == '生长期' %}bg-warning{% else %}bg-success{% endif %}">{{ f.maturity }}</span></td>
             <td>{{ f.estimated_yield }}</td>
@@ -38,19 +40,25 @@
             <td>
                 <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editFruitModal{{ f.fruit_id }}">编辑</button>
                 <form method="POST" action="{{ url_for('delete_fruit', fruit_id=f.fruit_id) }}" style="display:inline;">
-                    <button class="btn btn-sm btn-danger" onclick="return confirm('确定删除？')">删除</button>
+                    <input type="hidden" name="next" value="admin_fruits">
+                    <button class="btn btn-sm btn-danger" onclick="return confirm('确定删除？将同时删除关联的农事记录和订单。')">删除</button>
                 </form>
             </td>
         </tr>
         <!-- 编辑模态框 -->
         <div class="modal fade" id="editFruitModal{{ f.fruit_id }}" tabindex="-1">
             <div class="modal-dialog modal-lg"><div class="modal-content">
-                <div class="modal-header"><h5>编辑批次</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-header"><h5>编辑批次 #{{ f.fruit_id }}</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
                 <div class="modal-body">
                     <form method="POST" action="{{ url_for('edit_fruit', fruit_id=f.fruit_id) }}">
+                        <input type="hidden" name="next" value="admin_fruits">
                         <div class="row g-2">
-                            <div class="col-md-6"><input type="text" class="form-control" name="variety" value="{{ f.variety }}" required></div>
                             <div class="col-md-6">
+                                <label class="form-label small text-muted mb-0">品种</label>
+                                <input type="text" class="form-control" name="variety" value="{{ f.variety }}" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small text-muted mb-0">地块</label>
                                 <select class="form-select" name="land_id">
                                     {% for l in lands %}
                                         <option value="{{ l.land_id }}" {% if l.land_id == f.land_id %}selected{% endif %}>{{ l.location }}</option>
@@ -78,6 +86,7 @@
                                 <input type="number" step="0.1" class="form-control" name="price" value="{{ f.price or 0 }}">
                             </div>
                             <div class="col-md-4">
+                                <label class="form-label small text-muted mb-0">状态</label>
                                 <select class="form-select" name="maturity">
                                     <option value="生长期" {% if f.maturity == '生长期' %}selected{% endif %}>生长期</option>
                                     <option value="成熟可售" {% if f.maturity == '成熟可售' %}selected{% endif %}>成熟可售</option>
@@ -99,9 +108,14 @@
         <div class="modal-header"><h5>种植新批次</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
         <div class="modal-body">
             <form method="POST" action="{{ url_for('add_fruit') }}">
+                <input type="hidden" name="next" value="admin_fruits">
                 <div class="row g-2">
-                    <div class="col-md-6"><input type="text" class="form-control" name="variety" placeholder="品种" required></div>
                     <div class="col-md-6">
+                        <label class="form-label small text-muted mb-0">品种</label>
+                        <input type="text" class="form-control" name="variety" placeholder="品种" required>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small text-muted mb-0">地块</label>
                         <select class="form-select" name="land_id" required>
                             <option value="">选择地块</option>
                             {% for l in lands %}
@@ -121,9 +135,16 @@
                         <label class="form-label small text-muted mb-0">结果时间</label>
                         <input type="datetime-local" class="form-control" name="fruit_time" title="格式：年-月-日 时:分">
                     </div>
-                    <div class="col-md-4"><input type="number" step="0.1" class="form-control" name="estimated_yield" placeholder="预估产量" required></div>
-                    <div class="col-md-4"><input type="number" step="0.1" class="form-control" name="price" placeholder="单价(¥)"></div>
                     <div class="col-md-4">
+                        <label class="form-label small text-muted mb-0">预估产量(kg)</label>
+                        <input type="number" step="0.1" class="form-control" name="estimated_yield" placeholder="预估产量" required>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small text-muted mb-0">单价(¥)</label>
+                        <input type="number" step="0.1" class="form-control" name="price" placeholder="单价(¥)">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small text-muted mb-0">状态</label>
                         <select class="form-select" name="maturity">
                             <option value="生长期">生长期</option>
                             <option value="成熟可售">成熟可售</option>

@@ -7,10 +7,28 @@ app.secret_key = 'your-secret-key-change-in-production'
 
 # ---------- 辅助函数 ----------
 def check_owner(table, id_column, record_id, user_id_column='user_id'):
-    """检查当前用户是否拥有指定记录"""
+    """检查当前用户是否拥有指定记录（仅适用于含 user_id 列的表）"""
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(f"SELECT {user_id_column} FROM {table} WHERE {id_column} = %s", (record_id,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    if not row:
+        return False, '记录不存在'
+    if row[0] != session['user_id']:
+        return False, '无权操作他人的数据'
+    return True, None
+
+def check_fruit_owner(fruit_id):
+    """检查当前用户是否拥有指定果蔬（通过 lands 间接获取所有权）"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT l.user_id FROM fruits f
+        JOIN lands l ON f.land_id = l.land_id
+        WHERE f.fruit_id = %s
+    """, (fruit_id,))
     row = cur.fetchone()
     cur.close()
     conn.close()
@@ -110,13 +128,28 @@ def logout():
     flash('已退出')
     return redirect(url_for('login'))
 
+# ---------- redirect helper ----------
+def redirect_by_role(fallback):
+    """管理员操作后跳转到对应的 admin 页面，种植户/采购商跳转到 fallback"""
+    if session.get('role') == '管理员':
+        admin_map = {
+            'lands': 'admin_lands',
+            'fruits': 'admin_fruits',
+            'records': 'admin_records',
+        }
+        target = admin_map.get(request.form.get('next')) or admin_map.get(fallback, fallback)
+        return redirect(url_for(target))
+    return redirect(url_for(fallback))
+
 # ---------- 种植户功能：地块管理 ----------
 @app.route('/lands', methods=['GET'])
 @login_required
 def lands():
-    if session['role'] != '种植户':
+    if session['role'] not in ('种植户', '管理员'):
         flash('权限不足')
         return redirect(url_for('index'))
+    if session['role'] == '管理员':
+        return redirect(url_for('admin_lands'))
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=RealDictCursor)
     cur.execute("SELECT * FROM lands WHERE user_id = %s ORDER BY land_id", (session['user_id'],))
@@ -128,73 +161,79 @@ def lands():
 @app.route('/lands/add', methods=['POST'])
 @login_required
 def add_land():
-    if session['role'] != '种植户':
+    if session['role'] not in ('种植户', '管理员'):
         flash('权限不足')
         return redirect(url_for('index'))
     area = request.form.get('area')
     location = request.form.get('location')
+    owner_id = request.form.get('user_id') if session['role'] == '管理员' else None
     if not area or not location:
         flash('请填写完整信息')
-        return redirect(url_for('lands'))
+        return redirect_by_role('lands')
+    target_user = owner_id if owner_id else session['user_id']
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("INSERT INTO lands (area, location, user_id) VALUES (%s, %s, %s)",
-                (area, location, session['user_id']))
+                (area, location, target_user))
     conn.commit()
     cur.close()
     conn.close()
     flash('地块添加成功')
-    return redirect(url_for('lands'))
+    return redirect_by_role('lands')
 
 @app.route('/lands/edit/<int:land_id>', methods=['POST'])
 @login_required
 def edit_land(land_id):
-    if session['role'] != '种植户':
+    if session['role'] not in ('种植户', '管理员'):
         flash('权限不足')
         return redirect(url_for('index'))
-    ok, err = check_owner('lands', 'land_id', land_id)
-    if not ok:
-        flash(err)
-        return redirect(url_for('lands'))
+    if session['role'] != '管理员':
+        ok, err = check_owner('lands', 'land_id', land_id)
+        if not ok:
+            flash(err)
+            return redirect(url_for('lands'))
     area = request.form.get('area')
     location = request.form.get('location')
+    owner_id = request.form.get('user_id') if session['role'] == '管理员' else None
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("UPDATE lands SET area=%s, location=%s WHERE land_id=%s", (area, location, land_id))
+    if owner_id:
+        cur.execute("UPDATE lands SET area=%s, location=%s, user_id=%s WHERE land_id=%s",
+                    (area, location, owner_id, land_id))
+    else:
+        cur.execute("UPDATE lands SET area=%s, location=%s WHERE land_id=%s",
+                    (area, location, land_id))
     conn.commit()
     cur.close()
     conn.close()
     flash('地块更新成功')
-    return redirect(url_for('lands'))
+    return redirect_by_role('lands')
 
 @app.route('/lands/delete/<int:land_id>', methods=['POST'])
 @login_required
 def delete_land(land_id):
-    if session['role'] != '种植户':
+    if session['role'] not in ('种植户', '管理员'):
         flash('权限不足')
         return redirect(url_for('index'))
-    ok, err = check_owner('lands', 'land_id', land_id)
-    if not ok:
-        flash(err)
-        return redirect(url_for('lands'))
+    if session['role'] != '管理员':
+        ok, err = check_owner('lands', 'land_id', land_id)
+        if not ok:
+            flash(err)
+            return redirect(url_for('lands'))
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        # 先删除该地块下所有果蔬关联的农事记录
         cur.execute("""
             DELETE FROM records WHERE fruit_id IN (
                 SELECT fruit_id FROM fruits WHERE land_id = %s
             )
         """, (land_id,))
-        # 删除该地块下所有果蔬关联的订单
         cur.execute("""
             DELETE FROM orders WHERE fruit_id IN (
                 SELECT fruit_id FROM fruits WHERE land_id = %s
             )
         """, (land_id,))
-        # 删除该地块下的所有果蔬
         cur.execute("DELETE FROM fruits WHERE land_id = %s", (land_id,))
-        # 最后删除地块
         cur.execute("DELETE FROM lands WHERE land_id = %s", (land_id,))
         conn.commit()
         flash('地块已删除')
@@ -204,26 +243,27 @@ def delete_land(land_id):
     finally:
         cur.close()
         conn.close()
-    return redirect(url_for('lands'))
+    return redirect_by_role('lands')
 
 # ---------- 种植户功能：果蔬管理 ----------
 @app.route('/fruits', methods=['GET'])
 @login_required
 def fruits():
-    if session['role'] != '种植户':
+    if session['role'] not in ('种植户', '管理员'):
         flash('权限不足')
         return redirect(url_for('index'))
+    if session['role'] == '管理员':
+        return redirect(url_for('admin_fruits'))
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=RealDictCursor)
     cur.execute("""
         SELECT f.*, l.location AS land_location
         FROM fruits f
-        LEFT JOIN lands l ON f.land_id = l.land_id
-        WHERE f.user_id = %s
+        JOIN lands l ON f.land_id = l.land_id
+        WHERE l.user_id = %s
         ORDER BY f.fruit_id
     """, (session['user_id'],))
     all_fruits = cur.fetchall()
-    # 获取地块列表用于下拉选择（只看自己的地块）
     cur.execute("SELECT land_id, location FROM lands WHERE user_id = %s", (session['user_id'],))
     lands_list = cur.fetchall()
     cur.close()
@@ -233,90 +273,92 @@ def fruits():
 @app.route('/fruits/add', methods=['POST'])
 @login_required
 def add_fruit():
-    if session['role'] != '种植户':
+    if session['role'] not in ('种植户', '管理员'):
         flash('权限不足')
         return redirect(url_for('index'))
     variety = request.form.get('variety')
     land_id = request.form.get('land_id')
     estimated_yield = request.form.get('estimated_yield')
+    price = request.form.get('price', 0)
     plant_time = request.form.get('plant_time') or None
     flower_time = request.form.get('flower_time') or None
     fruit_time = request.form.get('fruit_time') or None
     maturity = request.form.get('maturity', '生长期')
     if not variety or not land_id or not estimated_yield:
         flash('请填写完整信息')
-        return redirect(url_for('fruits'))
-    # 验证地块属于当前用户
-    ok, err = check_owner('lands', 'land_id', land_id)
-    if not ok:
-        flash(err)
-        return redirect(url_for('fruits'))
+        return redirect_by_role('fruits')
+    if session['role'] != '管理员':
+        ok, err = check_owner('lands', 'land_id', land_id)
+        if not ok:
+            flash(err)
+            return redirect(url_for('fruits'))
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("""
-        INSERT INTO fruits (variety, plant_time, flower_time, fruit_time, maturity, estimated_yield, purchased_yield, land_id, user_id)
+        INSERT INTO fruits (variety, plant_time, flower_time, fruit_time, maturity, estimated_yield, purchased_yield, price, land_id)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-    """, (variety, plant_time, flower_time, fruit_time, maturity, estimated_yield, 0, land_id, session['user_id']))
+    """, (variety, plant_time, flower_time, fruit_time, maturity, estimated_yield, 0, price, land_id))
     conn.commit()
     cur.close()
     conn.close()
     flash('果蔬批次添加成功')
-    return redirect(url_for('fruits'))
+    return redirect_by_role('fruits')
 
 @app.route('/fruits/edit/<int:fruit_id>', methods=['POST'])
 @login_required
 def edit_fruit(fruit_id):
-    if session['role'] != '种植户':
+    if session['role'] not in ('种植户', '管理员'):
         flash('权限不足')
         return redirect(url_for('index'))
-    ok, err = check_owner('fruits', 'fruit_id', fruit_id)
-    if not ok:
-        flash(err)
-        return redirect(url_for('fruits'))
+    if session['role'] != '管理员':
+        ok, err = check_fruit_owner(fruit_id)
+        if not ok:
+            flash(err)
+            return redirect(url_for('fruits'))
     variety = request.form.get('variety')
     land_id = request.form.get('land_id')
     estimated_yield = request.form.get('estimated_yield')
     purchased_yield = request.form.get('purchased_yield', 0)
+    price = request.form.get('price', 0)
     plant_time = request.form.get('plant_time') or None
     flower_time = request.form.get('flower_time') or None
     fruit_time = request.form.get('fruit_time') or None
     maturity = request.form.get('maturity')
-    # 验证新地块也属于当前用户
-    ok, err = check_owner('lands', 'land_id', land_id)
-    if not ok:
-        flash('地块' + err)
-        return redirect(url_for('fruits'))
+    if session['role'] != '管理员':
+        ok, err = check_owner('lands', 'land_id', land_id)
+        if not ok:
+            flash('地块' + err)
+            return redirect(url_for('fruits'))
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("""
         UPDATE fruits SET
-            variety=%s, land_id=%s, estimated_yield=%s, purchased_yield=%s,
+            variety=%s, land_id=%s, estimated_yield=%s, purchased_yield=%s, price=%s,
             plant_time=%s, flower_time=%s, fruit_time=%s, maturity=%s
         WHERE fruit_id=%s
-    """, (variety, land_id, estimated_yield, purchased_yield, plant_time, flower_time, fruit_time, maturity, fruit_id))
+    """, (variety, land_id, estimated_yield, purchased_yield, price, plant_time, flower_time, fruit_time, maturity, fruit_id))
     conn.commit()
     cur.close()
     conn.close()
     flash('果蔬更新成功')
-    return redirect(url_for('fruits'))
+    return redirect_by_role('fruits')
 
 @app.route('/fruits/delete/<int:fruit_id>', methods=['POST'])
 @login_required
 def delete_fruit(fruit_id):
-    if session['role'] != '种植户':
+    if session['role'] not in ('种植户', '管理员'):
         flash('权限不足')
         return redirect(url_for('index'))
-    ok, err = check_owner('fruits', 'fruit_id', fruit_id)
-    if not ok:
-        flash(err)
-        return redirect(url_for('fruits'))
+    if session['role'] != '管理员':
+        ok, err = check_fruit_owner(fruit_id)
+        if not ok:
+            flash(err)
+            return redirect(url_for('fruits'))
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        # 先删除关联的农事记录和订单
         cur.execute("DELETE FROM records WHERE fruit_id = %s", (fruit_id,))
         cur.execute("DELETE FROM orders WHERE fruit_id = %s", (fruit_id,))
-        # 再删除果蔬
         cur.execute("DELETE FROM fruits WHERE fruit_id=%s", (fruit_id,))
         conn.commit()
         flash('已删除')
@@ -326,15 +368,17 @@ def delete_fruit(fruit_id):
     finally:
         cur.close()
         conn.close()
-    return redirect(url_for('fruits'))
+    return redirect_by_role('fruits')
 
 # ---------- 种植户功能：农事记录 ----------
 @app.route('/records', methods=['GET'])
 @login_required
 def records():
-    if session['role'] != '种植户':
+    if session['role'] not in ('种植户', '管理员'):
         flash('权限不足')
         return redirect(url_for('index'))
+    if session['role'] == '管理员':
+        return redirect(url_for('admin_records'))
     fruit_id_filter = request.args.get('fruit_id')
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -343,7 +387,8 @@ def records():
             SELECT r.*, f.variety AS fruit_variety
             FROM records r
             LEFT JOIN fruits f ON r.fruit_id = f.fruit_id
-            WHERE r.fruit_id = %s AND f.user_id = %s
+            LEFT JOIN lands l ON f.land_id = l.land_id
+            WHERE r.fruit_id = %s AND l.user_id = %s
             ORDER BY r.record_id
         """, (fruit_id_filter, session['user_id']))
     else:
@@ -351,12 +396,17 @@ def records():
             SELECT r.*, f.variety AS fruit_variety
             FROM records r
             LEFT JOIN fruits f ON r.fruit_id = f.fruit_id
-            WHERE f.user_id = %s
+            LEFT JOIN lands l ON f.land_id = l.land_id
+            WHERE l.user_id = %s
             ORDER BY r.record_id
         """, (session['user_id'],))
     all_records = cur.fetchall()
-    # 获取自己的果蔬列表用于过滤
-    cur.execute("SELECT fruit_id, variety FROM fruits WHERE user_id = %s", (session['user_id'],))
+    cur.execute("""
+        SELECT f.fruit_id, f.variety
+        FROM fruits f
+        JOIN lands l ON f.land_id = l.land_id
+        WHERE l.user_id = %s
+    """, (session['user_id'],))
     fruits_list = cur.fetchall()
     cur.close()
     conn.close()
@@ -365,7 +415,7 @@ def records():
 @app.route('/records/add', methods=['POST'])
 @login_required
 def add_record():
-    if session['role'] != '种植户':
+    if session['role'] not in ('种植户', '管理员'):
         flash('权限不足')
         return redirect(url_for('index'))
     fruit_id = request.form.get('fruit_id')
@@ -374,12 +424,12 @@ def add_record():
     details = request.form.get('details')
     if not fruit_id or not operation_type or not operation_time:
         flash('请填写完整信息')
-        return redirect(url_for('records'))
-    # 验证果蔬属于当前用户
-    ok, err = check_owner('fruits', 'fruit_id', fruit_id)
-    if not ok:
-        flash(err)
-        return redirect(url_for('records'))
+        return redirect_by_role('records')
+    if session['role'] != '管理员':
+        ok, err = check_fruit_owner(fruit_id)
+        if not ok:
+            flash(err)
+            return redirect(url_for('records'))
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("""
@@ -390,39 +440,40 @@ def add_record():
     cur.close()
     conn.close()
     flash('农事记录添加成功')
-    return redirect(url_for('records'))
+    return redirect_by_role('records')
 
 @app.route('/records/delete/<int:record_id>', methods=['POST'])
 @login_required
 def delete_record(record_id):
-    if session['role'] != '种植户':
+    if session['role'] not in ('种植户', '管理员'):
         flash('权限不足')
         return redirect(url_for('index'))
     conn = get_db_connection()
     cur = conn.cursor()
-    # 验证记录关联的果蔬属于当前用户
-    cur.execute("""
-        SELECT f.user_id FROM records r
-        JOIN fruits f ON r.fruit_id = f.fruit_id
-        WHERE r.record_id = %s
-    """, (record_id,))
-    row = cur.fetchone()
-    if not row:
-        cur.close()
-        conn.close()
-        flash('记录不存在')
-        return redirect(url_for('records'))
-    if row[0] != session['user_id']:
-        cur.close()
-        conn.close()
-        flash('无权操作他人的数据')
-        return redirect(url_for('records'))
+    if session['role'] != '管理员':
+        cur.execute("""
+            SELECT l.user_id FROM records r
+            JOIN fruits f ON r.fruit_id = f.fruit_id
+            JOIN lands l ON f.land_id = l.land_id
+            WHERE r.record_id = %s
+        """, (record_id,))
+        row = cur.fetchone()
+        if not row:
+            cur.close()
+            conn.close()
+            flash('记录不存在')
+            return redirect(url_for('records'))
+        if row[0] != session['user_id']:
+            cur.close()
+            conn.close()
+            flash('无权操作他人的数据')
+            return redirect(url_for('records'))
     cur.execute("DELETE FROM records WHERE record_id=%s", (record_id,))
     conn.commit()
     cur.close()
     conn.close()
     flash('记录已删除')
-    return redirect(url_for('records'))
+    return redirect_by_role('records')
 
 # ---------- 采购商功能 ----------
 @app.route('/buyer')
@@ -441,9 +492,9 @@ def buyer():
         WHERE f.maturity = '成熟可售'
     """)
     mature_fruits = cur.fetchall()
-    # 获取当前采购商的订单
+    # 获取当前采购商的订单（单价从果蔬表获取）
     cur.execute("""
-        SELECT o.*, f.variety AS fruit_variety
+        SELECT o.*, f.variety AS fruit_variety, f.price AS unit_price
         FROM orders o
         LEFT JOIN fruits f ON o.fruit_id = f.fruit_id
         WHERE o.user_id = %s
@@ -462,22 +513,20 @@ def purchase():
         return redirect(url_for('index'))
     fruit_id = request.form.get('fruit_id')
     amount = request.form.get('amount')
-    price = request.form.get('price')
-    if not fruit_id or not amount or not price:
+    if not fruit_id or not amount:
         flash('请填写完整信息')
         return redirect(url_for('buyer'))
     try:
         amount = float(amount)
-        price = float(price)
     except ValueError:
-        flash('数量或单价格式错误')
+        flash('数量格式错误')
         return redirect(url_for('buyer'))
     conn = get_db_connection()
     cur = conn.cursor()
     try:
         cur.execute(
-            "INSERT INTO orders (amount, price, user_id, fruit_id) VALUES (%s, %s, %s, %s)",
-            (amount, price, session['user_id'], fruit_id)
+            "INSERT INTO orders (amount, user_id, fruit_id) VALUES (%s, %s, %s)",
+            (amount, session['user_id'], fruit_id)
         )
         conn.commit()
         flash('采购成功！')
@@ -516,21 +565,26 @@ def delete_user(user_id):
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        # 删除该用户果蔬关联的农事记录
         cur.execute("""
             DELETE FROM records WHERE fruit_id IN (
-                SELECT fruit_id FROM fruits WHERE user_id = %s
+                SELECT f.fruit_id FROM fruits f
+                JOIN lands l ON f.land_id = l.land_id
+                WHERE l.user_id = %s
             )
         """, (user_id,))
-        # 删除该用户的订单和该用户果蔬的订单
         cur.execute("""
             DELETE FROM orders WHERE user_id = %s OR fruit_id IN (
-                SELECT fruit_id FROM fruits WHERE user_id = %s
+                SELECT f.fruit_id FROM fruits f
+                JOIN lands l ON f.land_id = l.land_id
+                WHERE l.user_id = %s
             )
         """, (user_id, user_id))
-        # 删除该用户的果蔬
-        cur.execute("DELETE FROM fruits WHERE user_id = %s", (user_id,))
-        # 最后删除用户
+        cur.execute("""
+            DELETE FROM fruits WHERE land_id IN (
+                SELECT land_id FROM lands WHERE user_id = %s
+            )
+        """, (user_id,))
+        cur.execute("DELETE FROM lands WHERE user_id = %s", (user_id,))
         cur.execute("DELETE FROM users WHERE user_id=%s", (user_id,))
         conn.commit()
         flash('用户已删除')
@@ -541,6 +595,131 @@ def delete_user(user_id):
         cur.close()
         conn.close()
     return redirect(url_for('admin_users'))
+
+# ---------- 管理员功能：地块总览 ----------
+@app.route('/admin/lands')
+@login_required
+def admin_lands():
+    if session['role'] != '管理员':
+        flash('权限不足')
+        return redirect(url_for('index'))
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute("""
+        SELECT l.*, u.username AS owner_name
+        FROM lands l
+        LEFT JOIN users u ON l.user_id = u.user_id
+        ORDER BY l.land_id
+    """)
+    all_lands = cur.fetchall()
+    cur.execute("SELECT user_id, username FROM users WHERE role = '种植户' ORDER BY user_id")
+    growers = cur.fetchall()
+    cur.close()
+    conn.close()
+    return render_template('admin_lands.html', lands=all_lands, growers=growers)
+
+# ---------- 管理员功能：果蔬总览 ----------
+@app.route('/admin/fruits')
+@login_required
+def admin_fruits():
+    if session['role'] != '管理员':
+        flash('权限不足')
+        return redirect(url_for('index'))
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute("""
+        SELECT f.*, l.location AS land_location, u.username AS owner_name
+        FROM fruits f
+        LEFT JOIN lands l ON f.land_id = l.land_id
+        LEFT JOIN users u ON l.user_id = u.user_id
+        ORDER BY f.fruit_id
+    """)
+    all_fruits = cur.fetchall()
+    cur.execute("SELECT land_id, location FROM lands ORDER BY land_id")
+    all_lands = cur.fetchall()
+    cur.execute("SELECT user_id, username FROM users WHERE role = '种植户' ORDER BY user_id")
+    growers = cur.fetchall()
+    cur.close()
+    conn.close()
+    return render_template('admin_fruits.html', fruits=all_fruits, lands=all_lands, growers=growers)
+
+# ---------- 管理员功能：农事记录总览 ----------
+@app.route('/admin/records')
+@login_required
+def admin_records():
+    if session['role'] != '管理员':
+        flash('权限不足')
+        return redirect(url_for('index'))
+    fruit_id_filter = request.args.get('fruit_id')
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    if fruit_id_filter:
+        cur.execute("""
+            SELECT r.*, f.variety AS fruit_variety, u.username AS owner_name
+            FROM records r
+            LEFT JOIN fruits f ON r.fruit_id = f.fruit_id
+            LEFT JOIN lands l ON f.land_id = l.land_id
+            LEFT JOIN users u ON l.user_id = u.user_id
+            WHERE r.fruit_id = %s
+            ORDER BY r.record_id
+        """, (fruit_id_filter,))
+    else:
+        cur.execute("""
+            SELECT r.*, f.variety AS fruit_variety, u.username AS owner_name
+            FROM records r
+            LEFT JOIN fruits f ON r.fruit_id = f.fruit_id
+            LEFT JOIN lands l ON f.land_id = l.land_id
+            LEFT JOIN users u ON l.user_id = u.user_id
+            ORDER BY r.record_id
+        """)
+    all_records = cur.fetchall()
+    cur.execute("SELECT fruit_id, variety FROM fruits ORDER BY fruit_id")
+    all_fruits = cur.fetchall()
+    cur.close()
+    conn.close()
+    return render_template('admin_records.html', records=all_records, fruits=all_fruits, selected_fruit=fruit_id_filter)
+
+# ---------- 管理员功能：订单总览 ----------
+@app.route('/admin/orders')
+@login_required
+def admin_orders():
+    if session['role'] != '管理员':
+        flash('权限不足')
+        return redirect(url_for('index'))
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute("""
+        SELECT o.*, f.variety AS fruit_variety, f.price AS unit_price, u.username AS buyer_name
+        FROM orders o
+        LEFT JOIN fruits f ON o.fruit_id = f.fruit_id
+        LEFT JOIN users u ON o.user_id = u.user_id
+        ORDER BY o.order_id DESC
+    """)
+    all_orders = cur.fetchall()
+    cur.close()
+    conn.close()
+    return render_template('admin_orders.html', orders=all_orders)
+
+@app.route('/admin/orders/delete/<int:order_id>', methods=['POST'])
+@login_required
+def delete_order(order_id):
+    if session['role'] != '管理员':
+        flash('权限不足')
+        return redirect(url_for('index'))
+    conn = get_db_connection()
+    cur = conn.cursor()
+    # 删除订单前先减少已采购量 (通过触发器增加的已采购量需要手动回退)
+    cur.execute("SELECT amount, fruit_id FROM orders WHERE order_id = %s", (order_id,))
+    row = cur.fetchone()
+    if row:
+        cur.execute("UPDATE fruits SET purchased_yield = purchased_yield - %s WHERE fruit_id = %s",
+                    (row[0], row[1]))
+    cur.execute("DELETE FROM orders WHERE order_id = %s", (order_id,))
+    conn.commit()
+    cur.close()
+    conn.close()
+    flash('订单已删除')
+    return redirect(url_for('admin_orders'))
 
 if __name__ == '__main__':
     app.run(debug=True)
