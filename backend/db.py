@@ -4,8 +4,9 @@ from psycopg2.extras import RealDictCursor
 def get_db_connection():
     conn = psycopg2.connect(
         host='localhost',
-        database='fruit_sale_system',      
+        database='fruit_sale_system',
         user='postgres',
-        password='******'
+        password='081010',
+        client_encoding='UTF8'
     )
     return conn
